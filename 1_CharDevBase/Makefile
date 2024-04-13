@@ -1,0 +1,12 @@
+KERNELDIR := /home/wandejun/linux/imx6ull/linux/NXP_linux
+CURRENT_PATH := $(shell pwd)
+APP_NAME := CharDevBaseAPP
+obj-m := CharDevBase.o
+
+build: kernel_modules
+
+kernel_modules:
+	$(MAKE) -C $(KERNELDIR) M=$(CURRENT_PATH) modules
+	arm-linux-gnueabihf-gcc $(APP_NAME).c -o $(APP_NAME).elf
+clean:
+	$(MAKE) -C $(KERNELDIR) M=$(CURRENT_PATH) clean

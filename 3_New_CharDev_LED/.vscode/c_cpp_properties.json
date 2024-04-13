@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/wandejun/linux/imx6ull/linux/NXP_linux/include", 
+                "/home/wandejun/linux/imx6ull/linux/NXP_linux/arch/arm/include", 
+                "/home/wandejun/linux/imx6ull/linux/NXP_linux/arch/arm/include/generated/"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "clang-x64"
+        }
+    ],
+    "version": 4
+}
