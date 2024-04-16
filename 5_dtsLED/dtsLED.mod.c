@@ -18,20 +18,25 @@ static const struct modversion_info ____versions[]
 __used
 __attribute__((section("__versions"))) = {
 	{ 0xfa985410, __VMLINUX_SYMBOL_STR(module_layout) },
-	{ 0xe6e17706, __VMLINUX_SYMBOL_STR(device_destroy) },
+	{ 0x7485e15e, __VMLINUX_SYMBOL_STR(unregister_chrdev_region) },
 	{ 0xb37da9a1, __VMLINUX_SYMBOL_STR(cdev_del) },
 	{ 0x495be299, __VMLINUX_SYMBOL_STR(class_destroy) },
-	{ 0x7485e15e, __VMLINUX_SYMBOL_STR(unregister_chrdev_region) },
+	{ 0xe6e17706, __VMLINUX_SYMBOL_STR(device_destroy) },
+	{ 0x37a0cba, __VMLINUX_SYMBOL_STR(kfree) },
+	{ 0xfb961d14, __VMLINUX_SYMBOL_STR(__arm_ioremap) },
+	{ 0xae372752, __VMLINUX_SYMBOL_STR(of_property_read_u32_array) },
+	{ 0x12da5bb2, __VMLINUX_SYMBOL_STR(__kmalloc) },
+	{ 0x117639a, __VMLINUX_SYMBOL_STR(of_property_count_elems_of_size) },
+	{ 0x2d0a6aab, __VMLINUX_SYMBOL_STR(of_property_read_string) },
+	{ 0xfbed6f8c, __VMLINUX_SYMBOL_STR(of_find_node_opts_by_path) },
 	{ 0x17d73699, __VMLINUX_SYMBOL_STR(device_create) },
 	{ 0x3c8c7d13, __VMLINUX_SYMBOL_STR(__class_create) },
 	{ 0xfeb25d8b, __VMLINUX_SYMBOL_STR(cdev_add) },
 	{ 0xb6828306, __VMLINUX_SYMBOL_STR(cdev_init) },
 	{ 0x29537c9e, __VMLINUX_SYMBOL_STR(alloc_chrdev_region) },
-	{ 0xfb961d14, __VMLINUX_SYMBOL_STR(__arm_ioremap) },
-	{ 0xc2165d85, __VMLINUX_SYMBOL_STR(__arm_iounmap) },
 	{ 0xfa2a45e, __VMLINUX_SYMBOL_STR(__memzero) },
-	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
 	{ 0xfbc74f64, __VMLINUX_SYMBOL_STR(__copy_from_user) },
+	{ 0x27e1a049, __VMLINUX_SYMBOL_STR(printk) },
 	{ 0x67c2fa54, __VMLINUX_SYMBOL_STR(__copy_to_user) },
 	{ 0xefd6cf06, __VMLINUX_SYMBOL_STR(__aeabi_unwind_cpp_pr0) },
 	{ 0x5dcf6341, __VMLINUX_SYMBOL_STR(outer_cache) },
@@ -43,4 +48,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "F9E5E3CF7D53D77DDED98AE");
+MODULE_INFO(srcversion, "D6FCA4C2F194A2713D7DE2B");

@@ -1,0 +1,1 @@
+cmd_/home/wandejun/linux/imx6ull/linux_driver/5_dtsLED/dtsLED.ko := arm-linux-gnueabihf-ld -EL -r  -T ./scripts/module-common.lds --build-id  -o /home/wandejun/linux/imx6ull/linux_driver/5_dtsLED/dtsLED.ko /home/wandejun/linux/imx6ull/linux_driver/5_dtsLED/dtsLED.o /home/wandejun/linux/imx6ull/linux_driver/5_dtsLED/dtsLED.mod.o
