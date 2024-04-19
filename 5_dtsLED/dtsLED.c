@@ -100,7 +100,7 @@ static int __init dtsLED_init(void) {
 	 * 创建类设备
 	 */
 	dtsLED_dev.device = device_create(dtsLED_dev.class, NULL, dtsLED_dev.devid, NULL, DTSLED_NAME);
-	err = IS_ERR(dtsLED_dev.class); // 判断异常
+	err = IS_ERR(dtsLED_dev.device); // 判断异常
 	if (err < 0) { // 异常处理
 		goto faild_device;
 	}

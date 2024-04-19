@@ -1,0 +1,1 @@
+cmd_/home/wandejun/linux/imx6ull/linux_driver/7_beep/beep.ko := arm-linux-gnueabihf-ld -EL -r  -T ./scripts/module-common.lds --build-id  -o /home/wandejun/linux/imx6ull/linux_driver/7_beep/beep.ko /home/wandejun/linux/imx6ull/linux_driver/7_beep/beep.o /home/wandejun/linux/imx6ull/linux_driver/7_beep/beep.mod.o
