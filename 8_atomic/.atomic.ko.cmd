@@ -1,0 +1,1 @@
+cmd_/home/wandejun/linux/imx6ull/linux_driver/8_atomic/atomic.ko := arm-linux-gnueabihf-ld -EL -r  -T ./scripts/module-common.lds --build-id  -o /home/wandejun/linux/imx6ull/linux_driver/8_atomic/atomic.ko /home/wandejun/linux/imx6ull/linux_driver/8_atomic/atomic.o /home/wandejun/linux/imx6ull/linux_driver/8_atomic/atomic.mod.o

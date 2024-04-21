@@ -1,0 +1,1 @@
+cmd_/home/wandejun/linux/imx6ull/linux_driver/11_mutex/mutex.ko := arm-linux-gnueabihf-ld -EL -r  -T ./scripts/module-common.lds --build-id  -o /home/wandejun/linux/imx6ull/linux_driver/11_mutex/mutex.ko /home/wandejun/linux/imx6ull/linux_driver/11_mutex/mutex.o /home/wandejun/linux/imx6ull/linux_driver/11_mutex/mutex.mod.o

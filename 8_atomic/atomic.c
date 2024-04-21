@@ -11,6 +11,8 @@
 #include <linux/slab.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
+#include <linux/types.h>
+#include <linux/atomic.h>
 
 #define GPIOLED_CNT 1
 #define GPIOLED_NAME "gpioLED"
@@ -24,8 +26,9 @@ typedef struct {
     struct device *device;
     struct device_node *nd;
     u32 led_gpio;
+    atomic_t atomic;
 } gpioLED_dev_t;
-gpioLED_dev_t gpioLED_dev;
+gpioLED_dev_t gpioLED_dev = {.atomic = ATOMIC_INIT(0)};
 
 static const struct file_operations gpioLED_dev_fops;
 
@@ -59,26 +62,37 @@ ssize_t gpioLED_write(struct file *filp, const char __user *buf, size_t cnt, lof
 	}
 
 	LED_switch((kernal_buf[0] - '0' == 0) ? LED_OFF : LED_ON); // 修改LED状态
-
+    
     return 0;
 }
 
 int gpioLED_open(struct inode *inode, struct file *filp) {
     filp->private_data = &gpioLED_dev;
 
+    if (atomic_dec_and_test(&gpioLED_dev.atomic) <= 0) { // 占用锁
+        atomic_inc(&gpioLED_dev.atomic); // 释放锁
+        return -EBUSY; // 锁被占用
+    }
+    
     return 0;
 }
 
 int gpioLED_release(struct inode *inode, struct file *filp) {
     filp->private_data = NULL;
 
+    atomic_inc(&gpioLED_dev.atomic); // 释放锁
+
     return 0;
-}
+} 
 
 
 static int __init gpioLED_init(void) {
     int err;
 
+    /* 
+     * 初始化atomic
+     */
+    atomic_set(&gpioLED_dev.atomic, 1);
     /* 
      * 1 获取设备id 
      */

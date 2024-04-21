@@ -24,10 +24,7 @@
         "init.h": "c",
         "fs.h": "c",
         "linkage.h": "c",
-        "cdev.h": "c",
-        "uaccess.h": "c",
-        "atomic.h": "c",
-        "of_gpio.h": "c"
+        "cdev.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled",
     "git.openRepositoryInParentFolders": "always"
