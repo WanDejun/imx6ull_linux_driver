@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/wandejun/linux/imx6ull/linux/NXP_linux/include", 
+                "/home/wandejun/linux/imx6ull/linux/NXP_linux/arch/arm/include", 
+                "/home/wandejun/linux/imx6ull/linux/NXP_linux/arch/arm/include/generated/"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/local/arm/gcc-linaro-4.9.4-2017.01-x86_64_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++11",
+            "intelliSenseMode": "linux-gcc-arm"
+        }
+    ],
+    "version": 4
+}
