@@ -14,9 +14,16 @@
 #include <linux/jiffies.h>
 #include <linux/timer.h>
 #include <linux/atomic.h>
+#include <linux/ioctl.h>
 
 #define TIMER_CNT 1
-#define TIMER_NAME "timer"
+#define TIMER_NAME "ioctl"
+
+#define CLOSE_CMD       _IO(0xEF, 1)
+#define OPEN_CMD        _IO(0xEF, 2)
+#define SETGAP_CMD      _IOW(0xEF, 3, int)
+
+static char kernel_buf[16];
 
 typedef struct {
     dev_t devid;
@@ -28,28 +35,21 @@ typedef struct {
     struct device_node *nd;
     u32 led_gpio;
     struct timer_list timer;
-    atomic_t counter;
-    u32 gap_time;
-    u8 short_long_gap_flag;
+    atomic_t counter; // 锁
+    u8 status; // 点灯状态
+    u32 gap_time; // 间隔时间
 } timer_dev_t;
 timer_dev_t timer_dev;
 
 static const struct file_operations timer_dev_fops;
 
 static void timer_func(unsigned long arg) {
-    static int sta = 0;
+    static int sta = 1;
 
     sta = !sta;
     gpio_set_value(timer_dev.led_gpio, sta);
 
-    if (timer_dev.short_long_gap_flag == 3) {
-        timer_dev.timer.expires += msecs_to_jiffies(timer_dev.gap_time >> 1);
-        timer_dev.short_long_gap_flag = 0;
-    }
-    else {
-        timer_dev.timer.expires += msecs_to_jiffies((timer_dev.gap_time >> 3));
-        timer_dev.short_long_gap_flag++;
-    }
+    timer_dev.timer.expires += msecs_to_jiffies(timer_dev.gap_time);
     add_timer(&timer_dev.timer); 
     //mod_timer(&timer_dev.timer, jiffies + msecs_to_jiffies(500));
 }
@@ -57,16 +57,15 @@ static void timer_func(unsigned long arg) {
 ssize_t timer_read(struct file *filp, char __user *buf, size_t cnt, loff_t *lof) {
 	int i, ret;
     u32 val, ret_cnt;
-    char kernal_buf[16];
 	
 	for (ret_cnt = 0, val = timer_dev.gap_time; val; val /= 10, ret_cnt++);
-    kernal_buf[ret_cnt] = '\0';
+    kernel_buf[ret_cnt] = '\0';
 
     for (i = ret_cnt - 1, val = timer_dev.gap_time; i >= 0; val /= 10, i--) {
-        kernal_buf[i] = (val % 10) + '0';
+        kernel_buf[i] = (val % 10) + '0';
     }
 
-	ret = copy_to_user(buf, kernal_buf, ret_cnt); // 返回定时信息
+	ret = copy_to_user(buf, kernel_buf, ret_cnt); // 返回定时信息
     if (ret < 0) {
         return ret;
     }
@@ -74,28 +73,92 @@ ssize_t timer_read(struct file *filp, char __user *buf, size_t cnt, loff_t *lof)
 	return ret_cnt;
 }
 
+/**
+ * @function: set led flash gap time
+ */
 ssize_t timer_write(struct file *filp, const char __user *buf, size_t cnt, loff_t *lof) {
-    u8 kernal_buf[16];
     u32 val = 0;
 	int ret, i;
 
-	ret = copy_from_user(kernal_buf, buf, cnt); // 读取输入
+	ret = copy_from_user(kernel_buf, buf, cnt); // 读取输入
 	if (ret < 0) { // 异常处理
-		printk("kernal write failed!\n");
+		printk("kernel write failed!\n");
 		return ret;
 	}
 
 	for (i = 0; i < cnt; i++) {
-        if (kernal_buf[i] < '0' || kernal_buf[i] > '9') {
+        if (kernel_buf[i] < '0' || kernel_buf[i] > '9') {
             printk("illegal input!\n");
             return -EINVAL;
         }
-        val = val * 10 + kernal_buf[i] - '0';
+        val = val * 10 + kernel_buf[i] - '0';
     }
     
     timer_dev.gap_time = val;
 
     return 0;
+}
+
+long timer_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long args) {
+    int ret = 0;
+    timer_dev_t *dev = filp->private_data;
+
+    switch (cmd) {
+	case OPEN_CMD:
+        if (dev->status) return 0;
+
+        dev->status = 1;
+
+        dev->timer.expires = jiffies + msecs_to_jiffies(dev->gap_time);
+        add_timer(&dev->timer);
+
+        break;
+	case CLOSE_CMD:
+        del_timer(&dev->timer);
+        dev->status = 0;
+
+        break;
+    case SETGAP_CMD:
+
+        break;
+	default:
+        break;
+	}
+
+	return ret;
+}
+
+long timer_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long args) {
+    int ret = 0;
+    timer_dev_t *dev = filp->private_data;
+    unsigned long *kernel_args = args;
+
+    switch (cmd) {
+	case OPEN_CMD:
+        if (dev->status) return 0;
+
+        dev->status = 1;
+
+        dev->timer.expires = jiffies + msecs_to_jiffies(dev->gap_time);
+        add_timer(&dev->timer);
+
+        break;
+	case CLOSE_CMD:
+        del_timer(&dev->timer);
+        gpio_set_value(timer_dev.led_gpio, 1);
+
+        dev->status = 0;
+
+        break;
+    case SETGAP_CMD:
+        dev->gap_time = (*kernel_args);
+
+        break;
+	default:
+        break;
+	}
+
+	return ret;
 }
 
 int timer_open(struct inode *inode, struct file *filp) {
@@ -121,8 +184,7 @@ int timer_release(struct inode *inode, struct file *filp) {
 static int __init timer_init(void) {
     int err;
     atomic_set(&timer_dev.counter, 1);
-    timer_dev.gap_time = 2000;
-    timer_dev.short_long_gap_flag = 3;
+    timer_dev.gap_time = 500;
     /* 
      * 1 获取设备id 
      */
@@ -194,7 +256,7 @@ static int __init timer_init(void) {
     /*
      * 5 申请gpio使用权
      */
-    err = gpio_request(timer_dev.led_gpio, "led1-gpios");
+    err = gpio_request(timer_dev.led_gpio, "ioctl");
     if (err) { // != 0 error
         printk("can not request led gpio!\n");
         goto failed_request_gpio;
@@ -211,9 +273,9 @@ static int __init timer_init(void) {
 
 
     /*
-     * 7 输出高电平, 关灯
+     * 7 输出低电平, 开灯
      */
-    gpio_set_value(timer_dev.led_gpio, 1);
+    gpio_set_value(timer_dev.led_gpio, 0);
 
 
     /*
@@ -273,11 +335,13 @@ static void __exit timer_exit(void) {
 }
 
 static const struct file_operations timer_dev_fops = {
-	.owner		= THIS_MODULE,
-	.read		= timer_read,
-	.write		= timer_write,
-	.open		= timer_open,
-	.release	= timer_release,
+	.owner		    = THIS_MODULE,
+    .compat_ioctl   = timer_compat_ioctl,
+	.unlocked_ioctl = timer_unlocked_ioctl,
+	.read		    = timer_read,
+	.write		    = timer_write,
+	.open		    = timer_open,
+	.release	    = timer_release,
 };
 
 /*
