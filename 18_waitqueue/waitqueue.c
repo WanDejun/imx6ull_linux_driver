@@ -1,5 +1,5 @@
 /**
- * @function: waitqueue实现阻塞式io
+ * @function: waitqueue实现阻塞式io + poll/epoll实现非阻塞式io
  * @author: Dejun Wan
  * @date: 2024年4月28日18:25:34
 */
@@ -56,7 +56,7 @@ typedef struct {
     atomic_t key_update_flag; // 读标志
     wait_queue_head_t r_wait; // 读等待队列
 } key_dev_t;
-key_dev_t key_dev;
+key_dev_t board_key_dev;
 
 static const struct file_operations board_key_dev_fops;
 
@@ -96,23 +96,24 @@ ssize_t board_key_read(struct file *filp, char __user *buf, size_t cnt, loff_t *
     // wait_event_interruptible(dev->r_wait, dev->key_update_flag.counter);
 
     DECLARE_WAITQUEUE(wait, current);
-    if (atomic_read(&dev->key_update_flag) == 0) {
-        add_wait_queue(&dev->r_wait, &wait);
-        __set_current_state(TASK_INTERRUPTIBLE);
-        schedule();
-        remove_wait_queue(&dev->r_wait, &wait);
+    while (atomic_dec_and_test(&dev->key_update_flag) == 0) { // 尝试获取锁
+        atomic_inc(&dev->key_update_flag); // 未获取到
+
+        add_wait_queue(&dev->r_wait, &wait); // 添加进等待队列
+        __set_current_state(TASK_INTERRUPTIBLE);  // 设置挂起状态
+        schedule(); // 放弃进程运行
+
+        /**
+         * wake_up后从这开始运行
+         */
+        remove_wait_queue(&dev->r_wait, &wait); // 移出队列
 
         /*唤醒之后从此处开始运行*/
         if (signal_pending(current)) { // 信号中断唤醒
-            __set_current_state(TASK_RUNNING);
-            return -ERESTARTSYS;
+            __set_current_state(TASK_RUNNING); 
+            return -ERESTARTSYS; // 处理信号
         }
-        __set_current_state(TASK_RUNNING);
-    }
-
-    if (atomic_dec_and_test(&dev->key_update_flag) == 0) {
-        atomic_inc(&dev->key_update_flag);
-        return -EBUSY;
+        __set_current_state(TASK_RUNNING); // 恢复运行
     }
 
     for (i = 0; i < copy_size; i++) {
@@ -128,7 +129,7 @@ ssize_t board_key_read(struct file *filp, char __user *buf, size_t cnt, loff_t *
 }
 
 int board_key_open(struct inode *inode, struct file *filp) {
-    filp->private_data = &key_dev;
+    filp->private_data = &board_key_dev;
 
     return 0;
 }
@@ -235,46 +236,46 @@ void key_gpio_exit(key_dev_t* dev) {
         free_irq(dev->irqkey[i].irq_nr, dev); // 释放每一个gpio和对应的中断
         gpio_free(dev->irqkey[i].gpio);
         /*删除定时器*/
-        del_timer_sync(&key_dev.irqkey[i].timer);
+        del_timer_sync(&board_key_dev.irqkey[i].timer);
     }
 }
 
 static int __init board_key_init(void) {
     int err;
 
-    init_waitqueue_head(&key_dev.r_wait);
-    atomic_set(&key_dev.key_update_flag, 0);
-    spin_lock_init(&key_dev.irq_lock); // 初始化自旋锁 
+    init_waitqueue_head(&board_key_dev.r_wait);
+    atomic_set(&board_key_dev.key_update_flag, 0);
+    spin_lock_init(&board_key_dev.irq_lock); // 初始化自旋锁 
 
-    key_dev.irq_handler[0] = key0_irq_handler; // 定义每个按键对应的中断
-    key_dev.timer_function[0] = timer0_function; // 定义按键中断的下半部(timer回调,用于消抖)
+    board_key_dev.irq_handler[0] = key0_irq_handler; // 定义每个按键对应的中断
+    board_key_dev.timer_function[0] = timer0_function; // 定义按键中断的下半部(timer回调,用于消抖)
     
     /**
      * @funtion: 1 获取设备id 
      */
-    key_dev.major = 0;
-    if (key_dev.major != 0) { // 手动定义设备id
-        key_dev.devid = MKDEV(key_dev.major, 0); //初始化设备id
-        err = register_chrdev_region(key_dev.devid, KEY_DEV_CNT, KEY_DEV_NAME); //注册设备id
+    board_key_dev.major = 0;
+    if (board_key_dev.major != 0) { // 手动定义设备id
+        board_key_dev.devid = MKDEV(board_key_dev.major, 0); //初始化设备id
+        err = register_chrdev_region(board_key_dev.devid, KEY_DEV_CNT, KEY_DEV_NAME); //注册设备id
     }
     else {
-        err = alloc_chrdev_region(&key_dev.devid, 0, KEY_DEV_CNT, KEY_DEV_NAME); // 分配并注册设备id
+        err = alloc_chrdev_region(&board_key_dev.devid, 0, KEY_DEV_CNT, KEY_DEV_NAME); // 分配并注册设备id
     }
 
     if (err < 0) { // 异常处理
         printk("failed_regcdev\n");
         goto failed_regcdev;
     }
-    key_dev.major = MAJOR(key_dev.devid); // 获取主设备id
-    key_dev.minor = MINOR(key_dev.devid); // 获取次设备id
+    board_key_dev.major = MAJOR(board_key_dev.devid); // 获取主设备id
+    board_key_dev.minor = MINOR(board_key_dev.devid); // 获取次设备id
 
 
     /** 
      * @funtion: 2 注册字符设备
      */
-    key_dev.cdev.owner = THIS_MODULE;
-    cdev_init(&key_dev.cdev, &board_key_dev_fops); // 初始化cdev
-    err = cdev_add(&key_dev.cdev, key_dev.devid, KEY_DEV_CNT); // 向linux添加cdev
+    board_key_dev.cdev.owner = THIS_MODULE;
+    cdev_init(&board_key_dev.cdev, &board_key_dev_fops); // 初始化cdev
+    err = cdev_add(&board_key_dev.cdev, board_key_dev.devid, KEY_DEV_CNT); // 向linux添加cdev
     if (err < 0) {
         printk("failed_cdev\n");
         goto failed_cdev;
@@ -284,15 +285,15 @@ static int __init board_key_init(void) {
     /** 
      * @funtion: 3 注册类
      */
-    key_dev.class = class_create(THIS_MODULE, KEY_DEV_NAME); //初始化类
-    err = IS_ERR(key_dev.class); // 判断错误
+    board_key_dev.class = class_create(THIS_MODULE, KEY_DEV_NAME); //初始化类
+    err = IS_ERR(board_key_dev.class); // 判断错误
     if (err < 0) {
         printk("failed_class\n");
         goto failed_class;
     }
 
-    key_dev.device = device_create(key_dev.class, NULL, key_dev.devid, NULL, KEY_DEV_NAME); //初始化设备
-    err = IS_ERR(key_dev.device); // 判断错误
+    board_key_dev.device = device_create(board_key_dev.class, NULL, board_key_dev.devid, NULL, KEY_DEV_NAME); //初始化设备
+    err = IS_ERR(board_key_dev.device); // 判断错误
     if (err < 0) {
         printk("failed_device\n");
         goto failed_device;
@@ -301,7 +302,7 @@ static int __init board_key_init(void) {
     /**
      * @funtion: 4 初始化GPIO
     */
-    err = key_gpio_init(&key_dev); 
+    err = key_gpio_init(&board_key_dev); 
     if (err < 0) {
         goto failed_gpio_init;
     }
@@ -314,32 +315,32 @@ static int __init board_key_init(void) {
  *@ funtion: 错误处理
  */
 failed_gpio_init:
-    device_destroy(key_dev.class, key_dev.devid);
+    device_destroy(board_key_dev.class, board_key_dev.devid);
 failed_device:
-    class_destroy(key_dev.class);
+    class_destroy(board_key_dev.class);
 failed_class:
-    cdev_del(&key_dev.cdev);
+    cdev_del(&board_key_dev.cdev);
 failed_cdev:
-    unregister_chrdev_region(key_dev.devid, KEY_DEV_CNT);
+    unregister_chrdev_region(board_key_dev.devid, KEY_DEV_CNT);
 failed_regcdev:
     return err;
 }
 
 static void __exit board_key_exit(void) {
     /*释放gpio*/
-    key_gpio_exit(&key_dev);
+    key_gpio_exit(&board_key_dev);
 
     /*删除设备*/
-    device_destroy(key_dev.class, key_dev.devid);
+    device_destroy(board_key_dev.class, board_key_dev.devid);
 
     /*删除类*/
-    class_destroy(key_dev.class);
+    class_destroy(board_key_dev.class);
 
     /*删除字符设备*/
-    cdev_del(&key_dev.cdev);
+    cdev_del(&board_key_dev.cdev);
     
     /*注销设备号*/
-    unregister_chrdev_region(key_dev.devid, KEY_DEV_CNT);
+    unregister_chrdev_region(board_key_dev.devid, KEY_DEV_CNT);
 }
 
 static const struct file_operations board_key_dev_fops = {
