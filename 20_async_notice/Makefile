@@ -1,6 +1,6 @@
 KERNELDIR := /home/wandejun/linux/imx6ull/linux/NXP_linux
 CURRENT_PATH := $(shell pwd)
-MODULES_NAME := noblock_key
+MODULES_NAME := async_notice
 APP_NAME := $(MODULES_NAME)APP
 obj-m := $(MODULES_NAME).o
 

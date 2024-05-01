@@ -1,5 +1,5 @@
 /**
- * @function: waitqueue实现阻塞式io + poll/epoll实现非阻塞式io
+ * @function: select/poll 实现非阻塞式io && waitqueue 实现阻塞式io
  * @author: Dejun Wan
  * @date: 2024年4月28日18:25:34
 */
@@ -23,6 +23,7 @@
 #include <linux/atomic.h>
 #include <linux/wait.h>
 #include <linux/ide.h>
+#include <linux/poll.h>
 
 #define KEY_DEV_CNT 1
 #define KEY_DEV_NAME "key"
@@ -55,6 +56,7 @@ typedef struct {
     u32 key_status[KEY_STATUS_ARRAY_NUM];
     atomic_t key_update_flag; // 读标志
     wait_queue_head_t r_wait; // 读等待队列
+    struct fasync_struct *fasync;
 } key_dev_t;
 key_dev_t board_key_dev;
 
@@ -62,10 +64,10 @@ static const struct file_operations board_key_dev_fops;
 
 static void timer0_function(unsigned long args) {
     key_dev_t *dev = (key_dev_t *)args;
-    int key_val = gpio_get_value(dev->irqkey[0].gpio); // 读gpio
+    int key_val = gpio_get_value(dev->irqkey[0].gpio);
     unsigned long flag;
 
-    spin_lock_irqsave(&dev->irq_lock, flag); // 获取锁
+    spin_lock_irqsave(&dev->irq_lock, flag);
     if (key_val == 0) {
         printk("key0 down!\n");
         dev->key_status[0 << 5] |= (1 << 0);
@@ -74,9 +76,11 @@ static void timer0_function(unsigned long args) {
         printk("key0 release!\n");
         dev->key_status[0 << 5] &= ~(1 << 0);
     }
-    atomic_set(&dev->key_update_flag, 1); // 释放锁
-    wake_up(&dev->r_wait); // 唤醒等待队列中的线程
+    atomic_set(&dev->key_update_flag, 1);
+    wake_up(&dev->r_wait);
     spin_unlock_irqrestore(&dev->irq_lock, flag);
+
+    if (dev->fasync) kill_fasync(&dev->fasync, SIGIO, POLL_IN); // 向事件队列中的所有线程发送异步通知
 }
 
 static irqreturn_t key0_irq_handler(int val, void* dev) { // 中断函数
@@ -91,41 +95,55 @@ ssize_t board_key_read(struct file *filp, char __user *buf, size_t cnt, loff_t *
     key_dev_t* dev = (key_dev_t*)filp->private_data;
     char kernel_buf[copy_size];
     int i;
+    unsigned long flag;
     
-    // /*等待事件*/
-    // wait_event_interruptible(dev->r_wait, dev->key_update_flag.counter);
-
-    DECLARE_WAITQUEUE(wait, current);
-    while (atomic_dec_and_test(&dev->key_update_flag) == 0) { // 尝试获取锁
-        atomic_inc(&dev->key_update_flag); // 未获取到
-
-        add_wait_queue(&dev->r_wait, &wait); // 添加进等待队列
-        __set_current_state(TASK_INTERRUPTIBLE);  // 设置挂起状态
-        schedule(); // 放弃进程运行
-
-        /**
-         * wake_up后从这开始运行
-         */
-        remove_wait_queue(&dev->r_wait, &wait); // 移出队列
-
-        /*唤醒之后从此处开始运行*/
-        if (signal_pending(current)) { // 信号中断唤醒
-            __set_current_state(TASK_RUNNING); 
-            return -ERESTARTSYS; // 处理信号
+    if (filp->f_flags & O_NONBLOCK) { // 非阻塞
+        if (atomic_dec_and_test(&dev->key_update_flag) == 0) { // 无法读
+            return -EAGAIN;
         }
-        __set_current_state(TASK_RUNNING); // 恢复运行
+    }
+    else {
+        while (atomic_dec_and_test(&dev->key_update_flag) == 0) { // 尝试获取锁
+            int ret = 0;
+            atomic_inc(&dev->key_update_flag); // 未获取到
+            /*等待事件*/
+            ret = wait_event_interruptible(dev->r_wait, dev->key_update_flag.counter);
+            if (ret < 0) {
+                return -ERESTARTSYS;
+            }
+        }
     }
 
+    spin_lock_irqsave(&dev->irq_lock, flag);
     for (i = 0; i < copy_size; i++) {
         if (i < KEY_NUM)
             kernel_buf[i] = '0' + (dev->key_status[i >> 5] & (1 << (i & (0x1f))));
         else 
             kernel_buf[i] = '0';
     }
+    spin_unlock_irqrestore(&dev->irq_lock, flag);
 
     err = copy_to_user(buf, kernel_buf, copy_size);
     if (err < 0) return err;
 	return copy_size;
+}
+
+unsigned int board_key_poll(struct file* filp, struct poll_table_struct* wait) {
+    key_dev_t* dev = filp->private_data;
+
+    poll_wait(filp, &dev->r_wait, wait);
+
+    /*判断是否可读*/
+    if (atomic_read(&dev->key_update_flag)) {
+        return POLLIN | POLLRDNORM;
+    }
+
+    return 0;
+}
+
+int borad_key_fasync (int fd, struct file * filp, int on) {
+    key_dev_t* dev = filp->private_data;
+    return fasync_helper(fd, filp, on, &dev->fasync); // 将filp标识的线程加入(on=1时 或 on=0时删除)dev->fasync事件队列中
 }
 
 int board_key_open(struct inode *inode, struct file *filp) {
@@ -135,6 +153,7 @@ int board_key_open(struct inode *inode, struct file *filp) {
 }
 
 int board_key_release(struct inode *inode, struct file *filp) {
+    borad_key_fasync(-1, filp, 0);
     filp->private_data = NULL;
 
     return 0;
@@ -348,6 +367,8 @@ static const struct file_operations board_key_dev_fops = {
 	.read		= board_key_read,
 	.open		= board_key_open,
 	.release	= board_key_release,
+    .poll       = board_key_poll,
+    .fasync     = borad_key_fasync,
 };
 
 /*
